@@ -18,9 +18,11 @@ defmodule FnbErp.Warehouse do
       define :list_inventories, action: :read
       define :inventories_for_product, action: :for_product, args: [:product_id]
 
-      define :record_movement,
-        action: :record_movement,
-        args: [:quantity, :reason, {:optional, :reference}]
+      # Deliberately not `define`d: `:record_movement` is a raw read-modify-write
+      # (see Changes.ApplyStockDelta) that must always run under the `FOR UPDATE`
+      # lock taken in `apply_movement/5` below. A code-interface function here
+      # would let a caller reach the action without the lock. Use
+      # `Warehouse.record_movement/5`, `receive_stock/4`, or `issue_stock/4`.
     end
 
     resource FnbErp.Warehouse.StockMovement do
@@ -78,6 +80,25 @@ defmodule FnbErp.Warehouse do
     end
   end
 
+  @doc """
+  Writes a signed quantity delta to the ledger and updates the balance, under
+  the same row lock as `receive_stock/4` and `issue_stock/4`.
+
+  Public for movement reasons (e.g. `:adjustment`, `:return`) that aren't a
+  plain receipt or sale; those two helpers cover the common signed-quantity
+  cases and should be preferred when they fit.
+  """
+  @spec record_movement(
+          Ash.UUID.t(),
+          Ash.UUID.t(),
+          Decimal.t() | number(),
+          atom(),
+          String.t() | nil
+        ) :: {:ok, FnbErp.Warehouse.Inventory.t()} | {:error, term()}
+  def record_movement(product_id, location_id, quantity, reason, reference \\ nil) do
+    apply_movement(product_id, location_id, to_decimal(quantity), reason, reference)
+  end
+
   # The balance is a read-modify-write (see Changes.ApplyStockDelta), so the read
   # has to hold the inventory row until the ledger row is committed. Without the
   # lock two movements can read the same balance and one delta is silently lost,
@@ -86,7 +107,11 @@ defmodule FnbErp.Warehouse do
     result =
       Ash.transaction(FnbErp.Warehouse.Inventory, fn ->
         with {:ok, inventory} <- lock_inventory(product_id, location_id) do
-          record_movement(inventory, delta, reason, reference)
+          Ash.update(
+            inventory,
+            %{quantity: delta, reason: reason, reference: reference},
+            action: :record_movement
+          )
         end
       end)
 

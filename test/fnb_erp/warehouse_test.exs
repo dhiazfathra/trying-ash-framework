@@ -143,10 +143,13 @@ defmodule FnbErp.WarehouseTest do
   describe "record_movement" do
     test "supports adjustments and returns", %{product: product, location: location} do
       {:ok, _} = Warehouse.receive_stock(product.id, location.id, 10)
-      [inventory] = Warehouse.inventories_for_product!(product.id)
 
-      assert {:ok, inventory} = Warehouse.record_movement(inventory, Decimal.new(-1), :adjustment)
-      assert {:ok, inventory} = Warehouse.record_movement(inventory, Decimal.new(2), :return)
+      assert {:ok, _} =
+               Warehouse.record_movement(product.id, location.id, Decimal.new(-1), :adjustment)
+
+      assert {:ok, inventory} =
+               Warehouse.record_movement(product.id, location.id, Decimal.new(2), :return)
+
       assert Decimal.equal?(inventory.quantity_on_hand, Decimal.new(11))
 
       assert [:receipt, :adjustment, :return] ==
@@ -170,13 +173,16 @@ defmodule FnbErp.WarehouseTest do
       end)
 
       {:ok, _} = Warehouse.receive_stock(product.id, location.id, 10)
+      supervisor = start_supervised!(Task.Supervisor)
 
       # Both issues read a balance of 10 and both are individually valid; only one
       # can win, and the loser must not corrupt the balance.
       results =
         [7, 7]
         |> Enum.map(
-          &Task.async(fn -> Warehouse.issue_stock(product.id, location.id, &1, "concurrent") end)
+          &Task.Supervisor.async_nolink(supervisor, fn ->
+            Warehouse.issue_stock(product.id, location.id, &1, "concurrent")
+          end)
         )
         |> Task.await_many(:timer.seconds(10))
 

@@ -400,6 +400,7 @@ it against data you want to keep.
 ```bash
 bash test/e2e/order_lifecycle_e2e.sh
 ```
+
 - **Purchasing / suppliers / goods receipt.** Stock arrives via a `:receipt`
   movement with a free-text reference.
 - **Split billing/shipping addresses.** One flat address per customer.

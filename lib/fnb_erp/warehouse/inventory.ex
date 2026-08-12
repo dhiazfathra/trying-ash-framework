@@ -44,7 +44,7 @@ defmodule FnbErp.Warehouse.Inventory do
 
     create :create do
       primary? true
-      accept [:product_id, :location_id, :quantity_on_hand]
+      accept [:product_id, :location_id]
       upsert? true
       upsert_identity :unique_product_location
 

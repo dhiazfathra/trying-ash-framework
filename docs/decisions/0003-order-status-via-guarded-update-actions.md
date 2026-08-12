@@ -39,6 +39,7 @@ update :fulfil do
   accept []
   require_atomic? false
   validate {Validations.StatusIs, status: :confirmed}
+  change {Changes.LockOrder, status: :confirmed}
   change set_attribute(:status, :fulfilled)
   change set_attribute(:fulfilled_at, &DateTime.utc_now/0)
   change Changes.DeductStock

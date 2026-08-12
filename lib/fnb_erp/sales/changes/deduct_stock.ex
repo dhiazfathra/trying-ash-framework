@@ -4,6 +4,10 @@ defmodule FnbErp.Sales.Changes.DeductStock do
 
   Runs inside the update's transaction, so a line that cannot be picked rolls the
   whole fulfilment back — an order is never half-shipped.
+
+  Lines are locked in `product_id` order: two orders fulfilling concurrently
+  and sharing a product row would otherwise be free to take their `FOR UPDATE`
+  locks in opposite orders and deadlock.
   """
   use Ash.Resource.Change
 
@@ -11,8 +15,9 @@ defmodule FnbErp.Sales.Changes.DeductStock do
   def change(changeset, _opts, _context) do
     Ash.Changeset.after_action(changeset, fn _changeset, order ->
       order = Ash.load!(order, :lines)
+      lines = Enum.sort_by(order.lines, & &1.product_id)
 
-      Enum.reduce_while(order.lines, {:ok, order}, fn line, acc ->
+      Enum.reduce_while(lines, {:ok, order}, fn line, acc ->
         case FnbErp.Warehouse.issue_stock(
                line.product_id,
                order.location_id,

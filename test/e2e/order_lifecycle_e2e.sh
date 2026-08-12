@@ -16,6 +16,10 @@ fail() { echo "E2E FAIL: $*" >&2; exit 1; }
 
 jqf() { python3 -c "import json,sys;d=json.load(sys.stdin);print(eval(sys.argv[1]))" "$1"; }
 
+if [ "${E2E_CONFIRM_DROP:-}" != "1" ]; then
+  fail "this script runs 'mix ash_postgres.drop' against whatever config/dev.exs points at. Set E2E_CONFIRM_DROP=1 to confirm you want that database wiped."
+fi
+
 echo "== resetting the dev database =="
 mix ash_postgres.drop
 mix ash.setup

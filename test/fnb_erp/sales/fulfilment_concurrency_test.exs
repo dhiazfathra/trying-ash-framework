@@ -26,10 +26,13 @@ defmodule FnbErp.Sales.FulfilmentConcurrencyTest do
     on_exit(fn -> delete_everything(order, product, location) end)
 
     confirmed = Sales.confirm_order!(order)
+    supervisor = start_supervised!(Task.Supervisor)
 
     results =
       [confirmed, confirmed]
-      |> Enum.map(fn order -> Task.async(fn -> Sales.fulfil_order(order) end) end)
+      |> Enum.map(fn order ->
+        Task.Supervisor.async(supervisor, fn -> Sales.fulfil_order(order) end)
+      end)
       |> Task.await_many(15_000)
 
     assert Enum.count(results, &match?({:ok, %{status: :fulfilled}}, &1)) == 1
