@@ -1,0 +1,50 @@
+# Assumptions
+
+Every judgment call made while bootstrapping this Sales Order Mini-ERP, recorded after the fact.
+Architectural decisions with alternatives considered live in [docs/decisions/](docs/decisions/).
+
+## Product / domain
+
+| # | Assumption | Rationale |
+|---|---|---|
+| 1 | Single company, single currency (**IDR**), no multi-currency conversion. | F&B SME demo; multi-currency is an invoicing concern, out of scope. |
+| 2 | Money stored as `:decimal` with scale 2, never float. | Avoids binary-float rounding on totals/tax. |
+| 3 | Tax is a single flat **11% VAT (PPN)** applied to the order subtotal, configurable per order via `tax_rate`. | Indonesian F&B default; per-line tax classes deferred. |
+| 4 | Order total = `sum(line subtotals) + tax` — no discounts, shipping, or rounding adjustments. | "Basic pricing/tax calculation" as scoped. |
+| 5 | Line price is **snapshotted** from the product's `unit_price` at line creation, then editable. | Historical orders must not change when a price list changes. |
+| 6 | Status workflow: `draft → confirmed → fulfilled → paid`, with `cancelled` reachable from `draft`/`confirmed` only. | Matches the scoped workflow; paid/fulfilled orders require a credit note, which is out of scope. |
+| 7 | Lines are editable only while the order is `draft`. | Prevents totals drifting after stock has been committed. |
+| 8 | Stock is decremented at **fulfilment**, not at confirmation; no soft reservation/allocation table. | Keeps one stock number authoritative. Reservations are the obvious next iteration. |
+| 9 | Stock availability is validated at both `confirm` and `fulfil`. | Fail early on the confirm, fail safe on the fulfil. |
+| 10 | One `Inventory` row per (product, warehouse) pair; multiple warehouses supported, but an order draws from a single warehouse chosen on the order header. | Multi-warehouse picking/allocation is real ERP scope, not demo scope. |
+| 11 | Stock movements are recorded as an append-only `StockMovement` ledger; `quantity_on_hand` is the materialised balance. | Auditability without event-sourcing the whole domain. |
+| 12 | Products carry a `category` of `:raw_material` or `:finished_good`; only `:finished_good` products are sellable. | Directly from the scope's category example. |
+| 13 | No BOM / production orders / recipe explosion (raw material → finished good). | Manufacturing is a separate domain. |
+| 14 | No invoicing, payments ledger, or accounting integration. `paid` is a status flag only. | Explicitly deferred; the scope said "basic". |
+| 15 | Customers are soft-deleted via `active?`, never hard-deleted. | Orders must keep referential history. |
+| 16 | Customer address is a flat set of string fields, not a separate address resource, and there is one address per customer (no split billing/shipping). | Single-address is the common SME case. |
+| 17 | `unit_of_measure` is a fixed enum (`kg`, `g`, `l`, `ml`, `pcs`, `box`, `carton`). No UoM conversion. | Conversion factors need a UoM resource; not scoped. |
+| 18 | Quantities are decimals, not integers. | F&B sells 1.5 kg. |
+| 19 | Order numbers are generated as `SO-YYYYMM-NNNN` from a Postgres sequence. | Human-readable; sequence avoids race conditions. |
+| 20 | SKU is globally unique (unique identity); customer email is unique when present. | Cheap data integrity via DB constraints. |
+
+## Technical
+
+| # | Assumption | Rationale |
+|---|---|---|
+| 21 | **No authentication and no authorisation.** `AshAuthentication` is not installed, and policies are omitted. | It is a local demo. Adding auth would double the surface area without exercising the sales-order domain. Flagged loudly in the README. |
+| 22 | Single tenant. No `multitenancy` block on any resource. | See #1. |
+| 23 | Ash **3.x**, Phoenix **1.8**, Elixir/OTP from Homebrew. | Latest stable line; Ash 3 is what the generators target. |
+| 24 | Interface = **both** AshAdmin (browsing/CRUD demo) and AshJsonApi (scriptable demo) — no bespoke LiveView CRUD screens. | See [ADR-0002](docs/decisions/0002-expose-domain-via-ash-admin-and-json-api.md). |
+| 25 | Postgres connects over the local Homebrew socket as the current OS user; `config/dev.exs` uses the local username with no password. | Matches the machine this was bootstrapped on; documented in the README. |
+| 26 | Test database uses the sandbox pool; tests run with `mix test`, which auto-creates and migrates. | Phoenix default. |
+| 27 | Seeds are idempotent (`upsert` on identities) so `mix run priv/repo/seeds.exs` can be re-run. | Repeated demos. |
+| 28 | Line `subtotal` is a **stored column** written by a change; order `subtotal` is an Ash **aggregate** over it, and `tax_amount`/`total` are expression calculations. | Keeps totals summable, filterable and sortable in SQL without a second write path. |
+| 33 | `FnbErp.Repo.min_pg_version` is pinned to **17.0.0**, not to whatever `postgres -V` reports. | On 18+ the migration generator emits a native `uuidv7()` default that a 17 server cannot execute. |
+| 34 | Stock deltas are applied read-modify-write, not with `atomic_update`. | Ash cannot atomically validate a decimal `precision` constraint against an expression. Concurrency is guarded by the `quantity_on_hand >= 0` check constraint; the ceiling is recorded as a `ponytail:` comment in `ApplyStockDelta`. |
+| 35 | AshAdmin is mounted only when `:dev_routes` is enabled, so it never ships in a production build. | Unauthenticated admin UI on a public port would be indefensible even for a demo. |
+| 36 | Every stock change goes through the ledger, including the first receipt for a product at a location (the inventory row is created empty, then filled by a movement). | One code path, so the ledger can never disagree with the balance. |
+| 29 | Business rules live in Ash `changes`/`validations`/`actions`, not in a service layer. | The point of the exercise is idiomatic Ash. |
+| 30 | Timestamps are UTC `:utc_datetime_usec`; `order_date` is a plain `:date`. | Orders are a business-day concept. |
+| 31 | No CI beyond `mix test` + `mix format --check-formatted` + `mix credo` in GitHub Actions. | Dialyzer's PLT build cost is not worth it at this size. |
+| 32 | Docker Compose is not provided; Postgres is assumed local. | Postgres was already running locally. |
