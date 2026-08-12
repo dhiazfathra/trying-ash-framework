@@ -41,6 +41,13 @@ defmodule FnbErp.Sales.Validations.ParentOrderIsDraft do
            message: "lines cannot be changed on a %{status} order",
            vars: [status: status]
          )}
+
+      nil ->
+        {:error,
+         Ash.Error.Changes.InvalidAttribute.exception(
+           field: :order_id,
+           message: "order does not exist"
+         )}
     end
   end
 end
