@@ -12,8 +12,12 @@ concurrency:
 
 env:
   MIX_ENV: test
-  ELIXIR_VERSION: "1.18.4"
-  OTP_VERSION: "27.3.4"
+  ELIXIR_VERSION: "1.20.3"
+  OTP_VERSION: "28.1"
+
+# CI only reads the repository.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -38,6 +42,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # CI never pushes; don't leave the workflow token in .git/config.
+          persist-credentials: false
 
       - uses: erlef/setup-beam@v1
         with:

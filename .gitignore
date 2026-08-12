@@ -39,3 +39,6 @@ npm-debug.log
 # Local agent/tooling caches
 /.tokensave/
 /.serena/
+
+# Local secret config, never committed.
+/config/*.secret.exs
