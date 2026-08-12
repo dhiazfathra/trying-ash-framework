@@ -18,6 +18,7 @@ defmodule FnbErp.Catalog do
       define :list_active_customers, action: :active
       define :get_customer, action: :read, get_by: [:id]
       define :deactivate_customer, action: :deactivate
+      define :activate_customer, action: :activate
     end
   end
 end

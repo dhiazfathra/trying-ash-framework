@@ -55,11 +55,17 @@ defmodule FnbErp.Catalog.Customer do
 
     update :deactivate do
       accept []
+      # The resource-level email format validation cannot run atomically, and it
+      # would re-run against the unchanged email on every atomic update.
+      require_atomic? false
       change set_attribute(:active?, false)
     end
 
     update :activate do
       accept []
+      # The resource-level email format validation cannot run atomically, and it
+      # would re-run against the unchanged email on every atomic update.
+      require_atomic? false
       change set_attribute(:active?, true)
     end
 

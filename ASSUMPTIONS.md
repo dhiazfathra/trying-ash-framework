@@ -34,17 +34,17 @@ Architectural decisions with alternatives considered live in [docs/decisions/](d
 |---|---|---|
 | 21 | **No authentication and no authorisation.** `AshAuthentication` is not installed, and policies are omitted. | It is a local demo. Adding auth would double the surface area without exercising the sales-order domain. Flagged loudly in the README. |
 | 22 | Single tenant. No `multitenancy` block on any resource. | See #1. |
-| 23 | Ash **3.x**, Phoenix **1.8**, Elixir/OTP from Homebrew. | Latest stable line; Ash 3 is what the generators target. |
+| 23 | Ash **3.x**, Phoenix **1.8**, Elixir **1.17+** (`mix.exs` floor; bootstrapped on 1.20.3 / OTP 29, CI pinned to 1.18.4 / OTP 27.3.4). | Latest stable line; Ash 3 is what the generators target. |
 | 24 | Interface = **both** AshAdmin (browsing/CRUD demo) and AshJsonApi (scriptable demo) — no bespoke LiveView CRUD screens. | See [ADR-0002](docs/decisions/0002-expose-domain-via-ash-admin-and-json-api.md). |
-| 25 | Postgres connects over the local Homebrew socket as the current OS user; `config/dev.exs` uses the local username with no password. | Matches the machine this was bootstrapped on; documented in the README. |
+| 25 | Dev and test connect to Postgres on `localhost` as `postgres`/`postgres` — the Phoenix generator default, left untouched. | Works on a stock Homebrew install with trust auth, and CI can mirror it exactly. |
 | 26 | Test database uses the sandbox pool; tests run with `mix test`, which auto-creates and migrates. | Phoenix default. |
-| 27 | Seeds are idempotent (`upsert` on identities) so `mix run priv/repo/seeds.exs` can be re-run. | Repeated demos. |
+| 27 | Seeds are idempotent: products and locations upsert on their identities, customers are looked up by email, orders are skipped when any order already exists, and stock is topped up to a target level rather than re-received. | Re-running a demo must not double the data or inflate stock. |
 | 28 | Line `subtotal` is a **stored column** written by a change; order `subtotal` is an Ash **aggregate** over it, and `tax_amount`/`total` are expression calculations. | Keeps totals summable, filterable and sortable in SQL without a second write path. |
+| 29 | Business rules live in Ash `changes`/`validations`/`actions`, not in a service layer. | The point of the exercise is idiomatic Ash. |
+| 30 | Timestamps are UTC `:utc_datetime_usec`; `order_date` is a plain `:date`. | Orders are a business-day concept. |
+| 31 | CI runs `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix ash.codegen --check` and `mix test`. No Dialyzer, no Credo. | Dialyzer's PLT build cost is not worth it at this size, and Credo would be a dep added for its own sake. `ash.codegen --check` is the valuable gate: it fails when migrations drift from the resources. |
+| 32 | Docker Compose is not provided; Postgres is assumed local. | Postgres was already running locally. |
 | 33 | `FnbErp.Repo.min_pg_version` is pinned to **17.0.0**, not to whatever `postgres -V` reports. | On 18+ the migration generator emits a native `uuidv7()` default that a 17 server cannot execute. |
 | 34 | Stock deltas are applied read-modify-write, not with `atomic_update`. | Ash cannot atomically validate a decimal `precision` constraint against an expression. Concurrency is guarded by the `quantity_on_hand >= 0` check constraint; the ceiling is recorded as a `ponytail:` comment in `ApplyStockDelta`. |
 | 35 | AshAdmin is mounted only when `:dev_routes` is enabled, so it never ships in a production build. | Unauthenticated admin UI on a public port would be indefensible even for a demo. |
 | 36 | Every stock change goes through the ledger, including the first receipt for a product at a location (the inventory row is created empty, then filled by a movement). | One code path, so the ledger can never disagree with the balance. |
-| 29 | Business rules live in Ash `changes`/`validations`/`actions`, not in a service layer. | The point of the exercise is idiomatic Ash. |
-| 30 | Timestamps are UTC `:utc_datetime_usec`; `order_date` is a plain `:date`. | Orders are a business-day concept. |
-| 31 | No CI beyond `mix test` + `mix format --check-formatted` + `mix credo` in GitHub Actions. | Dialyzer's PLT build cost is not worth it at this size. |
-| 32 | Docker Compose is not provided; Postgres is assumed local. | Postgres was already running locally. |

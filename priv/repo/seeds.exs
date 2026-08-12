@@ -165,9 +165,15 @@ receipts = %{
   "FG-TEA-330" => 1800
 }
 
-for {sku, quantity} <- receipts do
-  {:ok, _} =
-    Warehouse.receive_stock(products[sku].id, main_warehouse.id, quantity, "PO-SEED")
+# Top up to the target level rather than receiving the full quantity every run,
+# so re-seeding leaves stock where the demo expects it instead of inflating it.
+for {sku, target} <- receipts do
+  product = products[sku]
+  shortfall = Decimal.sub(target, Warehouse.available_quantity(product.id, main_warehouse.id))
+
+  if Decimal.positive?(shortfall) do
+    {:ok, _} = Warehouse.receive_stock(product.id, main_warehouse.id, shortfall, "PO-SEED")
+  end
 end
 
 orders =
