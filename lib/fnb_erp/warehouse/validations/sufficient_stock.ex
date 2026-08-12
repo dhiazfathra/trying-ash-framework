@@ -2,9 +2,10 @@ defmodule FnbErp.Warehouse.Validations.SufficientStock do
   @moduledoc """
   Rejects a stock movement that would drive an inventory balance below zero.
 
-  This is the friendly error; the `quantity_on_hand >= 0` check constraint is the
-  one that holds under a concurrent race, since the balance is read here before
-  the atomic update applies.
+  The balance it reads is authoritative because the caller holds a
+  `SELECT … FOR UPDATE` lock on the row (see `FnbErp.Warehouse.apply_movement/5`);
+  the `quantity_on_hand >= 0` check constraint remains as a backstop for any
+  future writer that forgets the lock.
   """
   use Ash.Resource.Validation
 

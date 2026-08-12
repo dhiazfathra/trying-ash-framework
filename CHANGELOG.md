@@ -25,13 +25,16 @@ First cut of the sales-order mini-ERP. See
 - `Warehouse.Location` — stockholding places, unique `code` with
   upsert-on-create.
 - `Warehouse.Inventory` — one `quantity_on_hand` balance per (product,
-  location), changed only through the `:record_movement` action, with a
-  `quantity_on_hand >= 0` Postgres check constraint as a backstop.
+  location), changed only through the `:record_movement` action, serialised by a
+  `SELECT … FOR UPDATE` lock on the row, with a `quantity_on_hand >= 0` Postgres
+  check constraint as a backstop.
 - `Warehouse.StockMovement` — append-only ledger with signed quantities,
   `:receipt` / `:sale` / `:adjustment` / `:return` reasons, free-text reference
-  and `occurred_at`; read and create only.
+  and `occurred_at`; read and create only, indexed on `inventory_id`.
 - `FnbErp.Warehouse` helpers `available_quantity/2`, `receive_stock/4` and
-  `issue_stock/4`.
+  `issue_stock/4`. Both movement helpers take a positive magnitude and reject
+  zero or negative quantities, so a ledger reason can never contradict the sign
+  of the balance change.
 - `Sales.Order` — `SO-YYYYMM-NNNN` numbers from a Postgres sequence, per-order
   `tax_rate` defaulting to 11% VAT, required customer and single pick location,
   transition timestamps, `subtotal` and `line_count` aggregates, and
@@ -71,8 +74,9 @@ First cut of the sales-order mini-ERP. See
   [ADR-0006](docs/decisions/0006-no-authentication-or-multitenancy.md).
 - No stock reservation: confirming an order checks availability but does not
   hold it.
-- Stock deltas are read-modify-write, so concurrent movements on one inventory
-  row are last-write-wins; the check constraint still prevents negative stock.
+- Stock deltas are read-modify-write, so every movement takes a `FOR UPDATE` lock
+  on the inventory row; throughput on a single hot (product, location) pair is
+  therefore one movement at a time.
 - No invoicing or payments ledger — `paid` is a status flag.
 - No discounts, shipping charges, per-line tax classes, multi-currency, BOM or
   unit-of-measure conversion.

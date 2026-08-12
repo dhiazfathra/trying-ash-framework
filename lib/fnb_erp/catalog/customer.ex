@@ -11,6 +11,8 @@ defmodule FnbErp.Catalog.Customer do
     extensions: [AshJsonApi.Resource],
     data_layer: AshPostgres.DataLayer
 
+  alias FnbErp.Catalog.Changes
+
   json_api do
     type "customer"
 
@@ -46,11 +48,13 @@ defmodule FnbErp.Catalog.Customer do
 
     create :create do
       primary? true
+      change Changes.DowncaseEmail
     end
 
     update :update do
       primary? true
       require_atomic? false
+      change Changes.DowncaseEmail
     end
 
     update :deactivate do

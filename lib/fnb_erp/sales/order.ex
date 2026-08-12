@@ -77,6 +77,7 @@ defmodule FnbErp.Sales.Order do
       validate {Validations.StatusIs, status: :draft}
       validate Validations.HasLines
       validate Validations.StockAvailable
+      change {Changes.LockOrder, status: :draft}
       change set_attribute(:status, :confirmed)
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
     end
@@ -86,6 +87,9 @@ defmodule FnbErp.Sales.Order do
       accept []
       require_atomic? false
       validate {Validations.StatusIs, status: :confirmed}
+      # The validation above reads the caller's copy of the record; this re-reads
+      # the status under a row lock so two concurrent fulfils cannot both deduct.
+      change {Changes.LockOrder, status: :confirmed}
       change set_attribute(:status, :fulfilled)
       change set_attribute(:fulfilled_at, &DateTime.utc_now/0)
       change Changes.DeductStock
@@ -95,6 +99,7 @@ defmodule FnbErp.Sales.Order do
       accept []
       require_atomic? false
       validate {Validations.StatusIs, status: :fulfilled}
+      change {Changes.LockOrder, status: :fulfilled}
       change set_attribute(:status, :paid)
       change set_attribute(:paid_at, &DateTime.utc_now/0)
     end
@@ -103,6 +108,7 @@ defmodule FnbErp.Sales.Order do
       accept [:cancellation_reason]
       require_atomic? false
       validate {Validations.StatusIs, status: [:draft, :confirmed]}
+      change {Changes.LockOrder, status: [:draft, :confirmed]}
       change set_attribute(:status, :cancelled)
       change set_attribute(:cancelled_at, &DateTime.utc_now/0)
     end

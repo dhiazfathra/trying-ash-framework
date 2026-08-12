@@ -41,53 +41,103 @@ defmodule FnbErp.Warehouse do
     end
   end
 
-  @doc "Adds stock at a location, creating the inventory row if this is the first receipt."
+  @doc """
+  Adds stock at a location, creating the inventory row if this is the first receipt.
+
+  `quantity` is the magnitude of the receipt and must be positive — the sign is
+  the caller's *intent*, and a negative receipt would write a `:receipt` ledger
+  row that removes stock.
+  """
   @spec receive_stock(Ash.UUID.t(), Ash.UUID.t(), Decimal.t() | number(), String.t() | nil) ::
           {:ok, FnbErp.Warehouse.Inventory.t()} | {:error, term()}
   def receive_stock(product_id, location_id, quantity, reference \\ nil) do
-    with {:ok, inventory} <- ensure_inventory(product_id, location_id) do
-      record_movement(inventory, to_decimal(quantity), :receipt, reference)
+    with {:ok, quantity} <- positive_quantity(quantity),
+         {:ok, _inventory} <- ensure_inventory(product_id, location_id) do
+      apply_movement(product_id, location_id, quantity, :receipt, reference)
     end
   end
 
   # The row is created empty and then filled by a movement, so the very first
-  # receipt lands in the ledger like every later one.
+  # receipt lands in the ledger like every later one. Idempotent: the upsert
+  # leaves an existing row's balance alone (see Inventory's `:create`).
   defp ensure_inventory(product_id, location_id) do
-    case fetch_inventory(product_id, location_id) do
-      {:ok, inventory} -> {:ok, inventory}
-      :error -> create_inventory(%{product_id: product_id, location_id: location_id})
-    end
+    create_inventory(%{product_id: product_id, location_id: location_id})
   end
 
-  @doc "Removes stock at a location. Fails if there is not enough on hand."
+  @doc """
+  Removes stock at a location. Fails if there is not enough on hand.
+
+  `quantity` is the magnitude of the issue and must be positive; see
+  `receive_stock/4`.
+  """
   @spec issue_stock(Ash.UUID.t(), Ash.UUID.t(), Decimal.t() | number(), String.t() | nil) ::
           {:ok, FnbErp.Warehouse.Inventory.t()} | {:error, term()}
   def issue_stock(product_id, location_id, quantity, reference \\ nil) do
-    case fetch_inventory(product_id, location_id) do
-      {:ok, inventory} ->
-        record_movement(inventory, Decimal.negate(to_decimal(quantity)), :sale, reference)
+    with {:ok, quantity} <- positive_quantity(quantity) do
+      apply_movement(product_id, location_id, Decimal.negate(quantity), :sale, reference)
+    end
+  end
 
-      :error ->
-        {:error,
-         Ash.Error.Invalid.exception(
-           errors: [
-             Ash.Error.Changes.InvalidArgument.exception(
-               field: :quantity,
-               message: "no stock of this product at this location"
-             )
-           ]
-         )}
+  # The balance is a read-modify-write (see Changes.ApplyStockDelta), so the read
+  # has to hold the inventory row until the ledger row is committed. Without the
+  # lock two movements can read the same balance and one delta is silently lost,
+  # leaving `quantity_on_hand` disagreeing with the sum of the ledger.
+  defp apply_movement(product_id, location_id, delta, reason, reference) do
+    result =
+      Ash.transaction(FnbErp.Warehouse.Inventory, fn ->
+        with {:ok, inventory} <- lock_inventory(product_id, location_id) do
+          record_movement(inventory, delta, reason, reference)
+        end
+      end)
+
+    case result do
+      {:ok, inner} -> inner
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp lock_inventory(product_id, location_id) do
+    inventory_query(product_id, location_id)
+    |> Ash.Query.lock("FOR UPDATE")
+    |> Ash.read_one!()
+    |> case do
+      nil -> {:error, invalid_quantity("no stock of this product at this location")}
+      inventory -> {:ok, inventory}
     end
   end
 
   defp fetch_inventory(product_id, location_id) do
-    FnbErp.Warehouse.Inventory
-    |> Ash.Query.filter(product_id == ^product_id and location_id == ^location_id)
+    inventory_query(product_id, location_id)
     |> Ash.read_one!()
     |> case do
       nil -> :error
       inventory -> {:ok, inventory}
     end
+  end
+
+  defp inventory_query(product_id, location_id) do
+    Ash.Query.filter(
+      FnbErp.Warehouse.Inventory,
+      product_id == ^product_id and location_id == ^location_id
+    )
+  end
+
+  defp positive_quantity(quantity) do
+    quantity = to_decimal(quantity)
+
+    if Decimal.positive?(quantity) do
+      {:ok, quantity}
+    else
+      {:error, invalid_quantity("quantity must be greater than zero")}
+    end
+  end
+
+  defp invalid_quantity(message) do
+    Ash.Error.Invalid.exception(
+      errors: [
+        Ash.Error.Changes.InvalidArgument.exception(field: :quantity, message: message)
+      ]
+    )
   end
 
   defp to_decimal(%Decimal{} = quantity), do: quantity

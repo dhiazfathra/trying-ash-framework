@@ -4,13 +4,10 @@ defmodule FnbErp.Warehouse.Changes.ApplyStockDelta do
 
   Read-modify-write rather than an atomic `quantity_on_hand + delta` expression:
   Ash cannot atomically validate a decimal's precision constraint against an
-  expression. Two concurrent movements on the same inventory row can therefore
-  interleave — the `quantity_on_hand >= 0` check constraint stops that turning
-  into negative stock, but the later write still wins.
-
-  ponytail: last-write-wins on concurrent movements; wrap in a `SELECT ... FOR UPDATE`
-  (or drop the precision constraint and go back to `atomic_update`) if concurrent
-  fulfilment ever becomes real.
+  expression. Concurrency safety therefore comes from the caller: every entry
+  point holds a `SELECT … FOR UPDATE` lock on the inventory row for the whole
+  read-modify-write plus ledger insert (see `FnbErp.Warehouse.apply_movement/5`),
+  so movements against one row are serialised by Postgres.
   """
   use Ash.Resource.Change
 

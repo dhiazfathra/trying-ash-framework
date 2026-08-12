@@ -145,7 +145,11 @@ total is a pure function of its lines and never needs freezing.
   invoice rounding adjustment (ASSUMPTIONS.md #4).
 - Precision/scale constraints force `require_atomic? false` in places — notably
   `Inventory.:record_movement`, whose delta cannot be applied as an atomic
-  expression for exactly this reason. See
+  expression for exactly this reason. The read-modify-write that replaces it is
+  made safe by a `SELECT … FOR UPDATE` lock on the inventory row rather than by
+  the statement (ASSUMPTIONS.md #34); order status transitions are serialised the
+  same way (`FnbErp.Sales.Changes.LockOrder`, see
+  [ADR-0003](0003-order-status-via-guarded-update-actions.md)). See also
   [ADR-0004](0004-materialised-stock-balance-plus-ledger.md).
 - A price change on a product does not rewrite existing order lines; the line
   keeps the price it was created with.

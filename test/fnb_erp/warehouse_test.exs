@@ -1,5 +1,7 @@
 defmodule FnbErp.WarehouseTest do
-  use FnbErp.DataCase, async: true
+  # async: false — the concurrency test below steps outside the SQL sandbox, which
+  # only one test may do at a time.
+  use FnbErp.DataCase, async: false
 
   import FnbErp.Fixtures
 
@@ -64,6 +66,19 @@ defmodule FnbErp.WarehouseTest do
 
       assert Decimal.equal?(inventory.quantity_on_hand, Decimal.new(4))
     end
+
+    # A negative receipt would write a `:receipt` ledger row that removes stock —
+    # a lie in an append-only ledger.
+    test "rejects zero and negative quantities", %{product: product, location: location} do
+      for quantity <- [0, -5, Decimal.new("-0.001")] do
+        assert {:error, error} = Warehouse.receive_stock(product.id, location.id, quantity)
+        assert message(error) =~ "quantity must be greater than zero"
+      end
+
+      # Nothing was created at all: the sign is checked before the inventory row.
+      assert Decimal.equal?(Warehouse.available_quantity(product.id, location.id), Decimal.new(0))
+      assert Warehouse.list_inventories!() == []
+    end
   end
 
   describe "issue_stock/4" do
@@ -106,6 +121,23 @@ defmodule FnbErp.WarehouseTest do
       assert {:error, error} = Warehouse.issue_stock(product.id, location.id, 1)
       assert message(error) =~ "no stock of this product at this location"
     end
+
+    # A negative issue would negate to a positive `:sale` that *adds* stock.
+    test "rejects zero and negative quantities", %{product: product, location: location} do
+      {:ok, _} = Warehouse.receive_stock(product.id, location.id, 10)
+
+      for quantity <- [0, -5, Decimal.new("-0.001")] do
+        assert {:error, error} = Warehouse.issue_stock(product.id, location.id, quantity)
+        assert message(error) =~ "quantity must be greater than zero"
+      end
+
+      assert Decimal.equal?(
+               Warehouse.available_quantity(product.id, location.id),
+               Decimal.new(10)
+             )
+
+      assert [_receipt_only] = movements(product, location)
+    end
   end
 
   describe "record_movement" do
@@ -119,6 +151,62 @@ defmodule FnbErp.WarehouseTest do
 
       assert [:receipt, :adjustment, :return] ==
                Enum.map(movements(product, location), & &1.reason)
+    end
+  end
+
+  describe "concurrent movements" do
+    # The sandbox lends every process one connection, so sandboxed "concurrency"
+    # is serialised by the connection rather than by the row lock and would pass
+    # even without it. This test therefore talks to the real database in `:auto`
+    # mode and deletes what it created.
+    test "are serialised, so the ledger always matches the balance" do
+      Ecto.Adapters.SQL.Sandbox.mode(FnbErp.Repo, :auto)
+      location = location()
+      product = product()
+
+      on_exit(fn ->
+        purge(product.id, location.id)
+        Ecto.Adapters.SQL.Sandbox.mode(FnbErp.Repo, :manual)
+      end)
+
+      {:ok, _} = Warehouse.receive_stock(product.id, location.id, 10)
+
+      # Both issues read a balance of 10 and both are individually valid; only one
+      # can win, and the loser must not corrupt the balance.
+      results =
+        [7, 7]
+        |> Enum.map(
+          &Task.async(fn -> Warehouse.issue_stock(product.id, location.id, &1, "concurrent") end)
+        )
+        |> Task.await_many(:timer.seconds(10))
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert [{:error, error}] = Enum.filter(results, &match?({:error, _}, &1))
+      assert message(error) =~ "insufficient stock"
+
+      on_hand = Warehouse.available_quantity(product.id, location.id)
+      assert Decimal.equal?(on_hand, Decimal.new(3))
+      assert Decimal.equal?(ledger_sum(product, location), on_hand)
+    end
+
+    defp ledger_sum(product, location) do
+      movements(product, location)
+      |> Enum.reduce(Decimal.new(0), &Decimal.add(&2, &1.quantity))
+    end
+
+    defp purge(product_id, location_id) do
+      sql!(
+        "delete from stock_movements where inventory_id in (select id from inventories where product_id = $1)",
+        [product_id]
+      )
+
+      sql!("delete from inventories where product_id = $1", [product_id])
+      sql!("delete from products where id = $1", [product_id])
+      sql!("delete from locations where id = $1", [location_id])
+    end
+
+    defp sql!(statement, uuids) do
+      Ecto.Adapters.SQL.query!(FnbErp.Repo, statement, Enum.map(uuids, &Ecto.UUID.dump!/1))
     end
   end
 

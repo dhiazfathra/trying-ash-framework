@@ -8,9 +8,11 @@ defmodule FnbErp.Sales.OrderLifecycleTest do
   defp message(error), do: Exception.message(error)
 
   describe "order_number" do
+    # `\d{4,}`: the sequence is global and zero-padding never truncates, so past
+    # order 9999 the counter is simply wider. See Changes.GenerateOrderNumber.
     test "is generated in SO-YYYYMM-NNNN form for the order date" do
       order = order(customer(), location(), %{order_date: ~D[2026-03-09]})
-      assert order.order_number =~ ~r/^SO-202603-\d{4}$/
+      assert order.order_number =~ ~r/^SO-202603-\d{4,}$/
     end
 
     test "is unique across two orders" do
@@ -21,17 +23,20 @@ defmodule FnbErp.Sales.OrderLifecycleTest do
       second = order(customer, location)
 
       assert first.order_number != second.order_number
-      assert first.order_number =~ ~r/^SO-\d{6}-\d{4}$/
-      assert second.order_number =~ ~r/^SO-\d{6}-\d{4}$/
+      assert first.order_number =~ ~r/^SO-\d{6}-\d{4,}$/
+      assert second.order_number =~ ~r/^SO-\d{6}-\d{4,}$/
     end
   end
 
   describe "creation" do
     test "starts as a draft with today's date and the default tax rate" do
+      # UTC midnight can fall between the insert and the assertion.
+      today_before = Date.utc_today()
       order = order(customer(), location())
+      today_after = Date.utc_today()
 
       assert order.status == :draft
-      assert order.order_date == Date.utc_today()
+      assert order.order_date in [today_before, today_after]
       assert Decimal.equal?(order.tax_rate, Decimal.new("0.11"))
     end
 

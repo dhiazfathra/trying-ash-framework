@@ -11,7 +11,7 @@ modelled entirely as Ash resources, which are the single source of truth for the
 database migrations, the JSON:API and the admin UI alike; there are no
 hand-written CRUD screens.
 
-> ### ⚠️ There is no authentication and no authorisation
+> ## ⚠️ There is no authentication and no authorisation
 >
 > No login, no users, no policies, no tenant boundary. Anyone who can reach this
 > app can read and write every customer, order and stock balance. It is a local
@@ -145,7 +145,7 @@ row), `receive_stock/4`, `issue_stock/4`.
 
 | Attribute | Notes |
 |---|---|
-| `order_number` | `SO-YYYYMM-NNNN`, generated from a Postgres sequence (`order_number_seq`) so concurrent inserts cannot collide. Not writable. |
+| `order_number` | `SO-YYYYMM-NNNN`, generated from a Postgres sequence (`order_number_seq`) so concurrent inserts cannot collide. The sequence is global and never resets, so `NNNN` is *at least* four digits — order 10 000 is `SO-202603-10000`. Not writable. |
 | `status` | `:draft \| :confirmed \| :fulfilled \| :paid \| :cancelled`. Not writable — only the transition actions move it. |
 | `order_date` | `:date`, defaults to today. |
 | `tax_rate` | `:decimal`, scale 4, defaults to `0.11` (11% VAT / PPN), validated to be between 0 and 1. |
@@ -207,7 +207,10 @@ Lines can only be created, updated or destroyed while the parent order is
 
 Every transition is guarded by `Validations.StatusIs`, which rejects the call
 with an error naming the current status and the allowed ones. Nothing else can
-write `status`. Note that stock is checked at `confirm` but **not reserved** —
+write `status`. The guard is re-checked under a `SELECT … FOR UPDATE` lock on the
+order row inside the transition's transaction (`Changes.LockOrder`), so two
+concurrent `fulfil` calls cannot both deduct stock — the second one blocks, then
+fails. Note that stock is checked at `confirm` but **not reserved** —
 it is only deducted at `fulfil`, so two orders can both confirm against the same
 units and the second will fail to ship. See
 [ADR-0003](docs/decisions/0003-order-status-via-guarded-update-actions.md) and
@@ -352,10 +355,11 @@ holds.
   top and [ADR-0006](docs/decisions/0006-no-authentication-or-multitenancy.md).
 - **Stock reservation / allocation.** Confirming an order does not hold its
   stock; only fulfilment moves it.
-- **Concurrency hardening.** The stock delta is read-modify-write, so concurrent
-  movements on one inventory row are last-write-wins (the check constraint still
-  prevents negative stock). Lifecycle transitions are non-atomic for the same
-  reason. Documented in
+- **Lock-free concurrency.** Stock deltas and lifecycle transitions are both
+  read-modify-write, so both are serialised with a `SELECT … FOR UPDATE` row lock
+  (on the inventory row and on the order row) rather than with an atomic
+  statement. Correct, but writers to one row queue up. Documented in
+  [ADR-0003](docs/decisions/0003-order-status-via-guarded-update-actions.md) and
   [ADR-0004](docs/decisions/0004-materialised-stock-balance-plus-ledger.md).
 - **Invoicing, payments, accounting.** `paid` is a status flag; there is no
   payment record.

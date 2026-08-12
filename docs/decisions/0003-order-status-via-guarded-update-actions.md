@@ -102,10 +102,22 @@ itself guarded by `StatusIs, status: :draft`.
   statuses, not a generic validation failure.
 - Every transition action sets `require_atomic? false`, because the guards and
   side effects read the record before writing. Transitions are therefore not
-  atomic `UPDATE … WHERE status = …` statements, and two concurrent `fulfil`
-  calls on the same order could both pass the guard. In a single-user demo this
-  does not arise; a real deployment would want the transition expressed as a
-  conditional update.
+  atomic `UPDATE … WHERE status = …` statements: `StatusIs` reads the status from
+  the record the *caller* already loaded, so on its own two concurrent `fulfil`
+  calls would both pass the guard and both deduct stock.
+- Serialisation therefore comes from a row lock, not from the statement. Every
+  transition adds `FnbErp.Sales.Changes.LockOrder`, which in a `before_action`
+  hook — inside the action's transaction — takes
+  `SELECT … FOR UPDATE` on the order row and re-runs `StatusIs.check/2` against
+  the freshly read status. The second caller blocks until the first commits, then
+  sees the new status and fails with the ordinary wrong-status error. This mirrors
+  what `FnbErp.Warehouse.apply_movement/5` does for the inventory row
+  (ASSUMPTIONS.md #34), and is covered by
+  `test/fnb_erp/sales/fulfilment_concurrency_test.exs`, which runs two real
+  connections outside the Ecto sandbox.
+- The guard is therefore stated twice per transition: the `validate` for a cheap
+  error before any work, the `change` for the authoritative check under the lock.
+  Both share one function so the message can only be written once.
 - The allowed-transition graph is spread across the action definitions rather
   than stated in one table — the resource `@moduledoc` and the README carry that
   summary instead, and both can drift from the code.

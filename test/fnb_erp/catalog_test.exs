@@ -99,6 +99,17 @@ defmodule FnbErp.CatalogTest do
       assert %{email: nil} = customer()
     end
 
+    test "email is downcased on create and update, so case cannot duplicate a customer" do
+      email = "#{uniq("MiXeD")}@Cafe.CO.ID"
+      created = customer(%{email: email})
+
+      assert created.email == String.downcase(email)
+      assert {:error, error} = Catalog.create_customer(%{name: "Other", email: email})
+      assert message(error) =~ "email"
+
+      assert %{email: "later@cafe.co.id"} = Ash.update!(created, %{email: "LATER@Cafe.co.id"})
+    end
+
     test "email is unique when present" do
       email = "#{uniq("dup")}@cafe.co.id"
       customer(%{email: email})

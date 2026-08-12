@@ -43,6 +43,26 @@ defmodule FnbErp.Sales.OrderLineTest do
     end
   end
 
+  describe "missing foreign keys" do
+    test "a missing order_id reports only that it is required" do
+      assert {:error, error} = Sales.add_order_line(%{product_id: product().id, quantity: 1})
+      msg = message(error)
+
+      assert msg =~ "order_id"
+      assert msg =~ "is required"
+      refute msg =~ "not found"
+    end
+
+    test "a missing product_id reports only that it is required", %{order: order} do
+      assert {:error, error} = Sales.add_order_line(%{order_id: order.id, quantity: 1})
+      msg = message(error)
+
+      assert msg =~ "product_id"
+      assert msg =~ "is required"
+      refute msg =~ "not found"
+    end
+  end
+
   describe "quantity" do
     test "must be greater than zero", %{order: order} do
       product = product()

@@ -25,7 +25,7 @@ Architectural decisions with alternatives considered live in [docs/decisions/](d
 | 16 | Customer address is a flat set of string fields, not a separate address resource, and there is one address per customer (no split billing/shipping). | Single-address is the common SME case. |
 | 17 | `unit_of_measure` is a fixed enum (`kg`, `g`, `l`, `ml`, `pcs`, `box`, `carton`). No UoM conversion. | Conversion factors need a UoM resource; not scoped. |
 | 18 | Quantities are decimals, not integers. | F&B sells 1.5 kg. |
-| 19 | Order numbers are generated as `SO-YYYYMM-NNNN` from a Postgres sequence. | Human-readable; sequence avoids race conditions. |
+| 19 | Order numbers are generated as `SO-YYYYMM-NNNN` from a single global Postgres sequence, zero-padded to at least four digits (the counter never resets, so past 9999 the last segment simply grows). | Human-readable; a sequence avoids collisions between concurrent inserts without a per-month counter to reset. |
 | 20 | SKU is globally unique (unique identity); customer email is unique when present. | Cheap data integrity via DB constraints. |
 
 ## Technical
@@ -45,6 +45,6 @@ Architectural decisions with alternatives considered live in [docs/decisions/](d
 | 31 | CI runs `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix ash.codegen --check` and `mix test`. No Dialyzer, no Credo. | Dialyzer's PLT build cost is not worth it at this size, and Credo would be a dep added for its own sake. `ash.codegen --check` is the valuable gate: it fails when migrations drift from the resources. |
 | 32 | Docker Compose is not provided; Postgres is assumed local. | Postgres was already running locally. |
 | 33 | `FnbErp.Repo.min_pg_version` is pinned to **17.0.0**, not to whatever `postgres -V` reports. | On 18+ the migration generator emits a native `uuidv7()` default that a 17 server cannot execute. |
-| 34 | Stock deltas are applied read-modify-write, not with `atomic_update`. | Ash cannot atomically validate a decimal `precision` constraint against an expression. Concurrency is guarded by the `quantity_on_hand >= 0` check constraint; the ceiling is recorded as a `ponytail:` comment in `ApplyStockDelta`. |
+| 34 | Stock deltas are applied read-modify-write, not with `atomic_update`, and every entry point serialises the whole read-modify-write plus ledger insert behind a `SELECT … FOR UPDATE` row lock on the inventory row. | Ash cannot atomically validate a decimal `precision` constraint against an expression, so the correctness has to come from the lock rather than from the statement. `FnbErp.Warehouse.apply_movement/5` takes the lock inside an `Ash.transaction/3`; the `quantity_on_hand >= 0` check constraint stays as a backstop for a future writer that forgets it. |
 | 35 | AshAdmin is mounted only when `:dev_routes` is enabled, so it never ships in a production build. | Unauthenticated admin UI on a public port would be indefensible even for a demo. |
 | 36 | Every stock change goes through the ledger, including the first receipt for a product at a location (the inventory row is created empty, then filled by a movement). | One code path, so the ledger can never disagree with the balance. |

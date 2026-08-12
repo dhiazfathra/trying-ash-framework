@@ -29,6 +29,12 @@ defmodule FnbErp.Warehouse.StockMovement do
     references do
       reference :inventory, on_delete: :restrict
     end
+
+    # Every read of the ledger is "the movements for this inventory row", and the
+    # foreign key alone does not index it.
+    custom_indexes do
+      index [:inventory_id]
+    end
   end
 
   actions do

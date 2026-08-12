@@ -47,7 +47,12 @@ defmodule FnbErp.Warehouse.Inventory do
       accept [:product_id, :location_id, :quantity_on_hand]
       upsert? true
       upsert_identity :unique_product_location
-      upsert_fields [:quantity_on_hand]
+
+      # A no-op conflict update: `product_id` is already the conflicting value.
+      # The upsert exists only to make "get me the row for this pair, creating it
+      # if needed" a single safe statement — it must never write
+      # `quantity_on_hand`, which belongs to `:record_movement` and its ledger.
+      upsert_fields [:product_id]
     end
 
     update :record_movement do

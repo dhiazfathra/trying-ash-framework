@@ -43,10 +43,12 @@ Every balance change goes through a single action,
 3. `Changes.RecordStockMovement` — writes the ledger row in the same
    transaction, so the ledger can never disagree with the balance.
 
-A Postgres check constraint,
-`inventories_quantity_on_hand_non_negative` (`quantity_on_hand >= 0`), declared
-in the resource's `check_constraints` block, is the backstop under a race that
-`SufficientStock` cannot see.
+All three run inside `FnbErp.Warehouse.apply_movement/5`, which holds a
+`SELECT … FOR UPDATE` lock on the inventory row for the whole sequence, so
+concurrent movements against one row queue rather than interleave. A Postgres
+check constraint, `inventories_quantity_on_hand_non_negative`
+(`quantity_on_hand >= 0`), declared in the resource's `check_constraints` block,
+is the backstop for any future writer that skips that path.
 
 **Deduction happens at fulfilment, not confirmation, and there is no reservation
 step** (ASSUMPTIONS.md #8). Availability is checked twice:
@@ -104,18 +106,22 @@ an order is never half-shipped.
 - **A confirmed order does not hold its stock.** Two orders can both confirm
   against the same units; the second one fails at `fulfil`. That is the direct
   price of skipping reservations.
-- **`ApplyStockDelta` is read-modify-write, so concurrent movements on the same
-  inventory row are last-write-wins.** It reads `changeset.data.quantity_on_hand`
-  and writes `on_hand + delta` rather than emitting an atomic
-  `quantity_on_hand + delta` expression, because Ash cannot atomically validate
-  a decimal's precision constraint against an expression. Two interleaved
-  movements can therefore lose one of the deltas. The
-  `quantity_on_hand >= 0` check constraint stops that becoming *negative* stock,
-  but it does not stop the balance being wrong relative to the ledger. The module
-  carries a `ponytail:` note with the upgrade path: wrap the read in
-  `SELECT … FOR UPDATE`, or drop the precision constraint and go back to
-  `atomic_update`. This is acceptable for a single-user demo and is the first
-  thing to fix under real concurrency.
+- **`ApplyStockDelta` is read-modify-write, so movements against one inventory row
+  are serialised by a row lock.** It reads `changeset.data.quantity_on_hand` and
+  writes `on_hand + delta` rather than emitting an atomic
+  `quantity_on_hand + delta` expression, because Ash cannot atomically validate a
+  decimal's precision constraint against an expression. Correctness therefore
+  cannot come from the statement, so it comes from the lock:
+  `FnbErp.Warehouse.apply_movement/5` — the single path behind `receive_stock/4`,
+  `issue_stock/4` and the fulfilment change — opens an `Ash.transaction/3`, reads
+  the inventory row with `Ash.Query.lock("FOR UPDATE")`, and only then runs
+  `:record_movement`, whose `after_action` ledger insert commits in that same
+  transaction. A second movement against the same row blocks at the lock until
+  the first commits, then re-reads the new balance, so `SufficientStock` sees the
+  truth and `quantity_on_hand` always equals the sum of the ledger. The price is
+  throughput: one movement at a time per (product, location), which is the right
+  trade for a stock balance. The `quantity_on_hand >= 0` check constraint stays as
+  a backstop for a future writer that bypasses `apply_movement/5`.
 - Balance and ledger are two writes that must stay in step. They do, only because
   `record_movement` is the sole writer and does both in one transaction — a
   future code path that writes `quantity_on_hand` directly would silently break
