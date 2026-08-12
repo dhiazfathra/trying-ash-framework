@@ -39,6 +39,19 @@ defmodule FnbErpWeb.JsonApiTest do
     end
   end
 
+  describe "GET /api/json/orders/:id" do
+    test "exposes subtotal and line_count over the JSON:API", %{conn: conn} do
+      %{order: order} = order_with_line(quantity: 2)
+
+      conn = get(conn, "/api/json/orders/#{order.id}?fields[order]=subtotal,line_count")
+
+      assert conn.status == 200
+      assert %{"data" => %{"attributes" => attributes}} = Jason.decode!(conn.resp_body)
+      assert attributes["line_count"] == 1
+      assert Decimal.equal?(Decimal.new(attributes["subtotal"]), Decimal.new("50000.00"))
+    end
+  end
+
   describe "POST /api/json/customers" do
     test "creates a customer", %{conn: conn} do
       name = uniq("Api Cafe")
