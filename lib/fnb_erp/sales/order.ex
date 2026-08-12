@@ -182,8 +182,8 @@ defmodule FnbErp.Sales.Order do
   end
 
   aggregates do
-    sum :subtotal, :lines, :subtotal, default: Decimal.new(0)
-    count :line_count, :lines
+    sum :subtotal, :lines, :subtotal, default: Decimal.new(0), public?: true
+    count :line_count, :lines, public?: true
   end
 
   identities do

@@ -81,12 +81,19 @@ With `mix phx.server` running:
 | URL | What |
 |---|---|
 | <http://localhost:4000> | Phoenix landing page (the generated one — this app has no custom UI). |
-| <http://localhost:4000/admin> | **AshAdmin** — browse and edit every resource, and run the order lifecycle actions. Mounted behind `:dev_routes`, so it exists in dev and test only. |
+| <http://localhost:4000/admin> | **AshAdmin** — browse and edit every resource, and run the order lifecycle actions. Mounted behind `:dev_routes`, so it exists in dev and test only. ⚠️ Currently 500s on mount — see the caveat below. |
 | <http://localhost:4000/api/json> | **JSON:API** for all three domains. |
 | <http://localhost:4000/api/json/open_api> | Generated OpenAPI document. |
 | <http://localhost:4000/api/json/swaggerui> | SwaggerUI over that document. |
 | <http://localhost:4000/dev/dashboard> | Phoenix LiveDashboard (`:dev_routes`). |
 | <http://localhost:4000/dev/mailbox> | Swoosh mailbox preview (`:dev_routes`). Nothing in this app sends mail. |
+
+> **⚠️ `/admin` currently 500s.** `ash_admin` 1.2.0 raises `KeyError: key :action_type not found`
+> on its own root LiveView mount on this stack, with or without a `resource`/`domain` query
+> param — reproduced with no changes to this app's router or resources. It's upstream
+> territory, not something to patch in a vendored dependency; see ASSUMPTIONS.md #38. The
+> JSON:API is unaffected and is what [`test/e2e/order_lifecycle_e2e.sh`](test/e2e/order_lifecycle_e2e.sh)
+> exercises end to end.
 
 ## Domain model
 
@@ -348,6 +355,9 @@ holds.
   status.
 - GitHub Actions CI: format check, warnings-as-errors compile,
   `mix ash.codegen --check`, and the test suite against `postgres:17`.
+- End-to-end smoke test ([`test/e2e/order_lifecycle_e2e.sh`](test/e2e/order_lifecycle_e2e.sh))
+  driving a live `mix phx.server` over real HTTP through the full JSON:API
+  lifecycle, rejection paths, stock deduction and ledger integrity.
 
 **Deferred** — and why, in [ASSUMPTIONS.md](ASSUMPTIONS.md)
 
@@ -371,6 +381,25 @@ holds.
 - **Multi-warehouse picking.** An order draws from one location chosen on the
   header.
 - **Unit-of-measure conversion.** The enum is fixed and no factors are stored.
+- **A working AshAdmin.** It 500s on mount on this stack — an upstream
+  `ash_admin` issue, not something introduced by this app. See the warning
+  above and ASSUMPTIONS.md #38.
+
+## End-to-end test
+
+[`test/e2e/order_lifecycle_e2e.sh`](test/e2e/order_lifecycle_e2e.sh) boots a real
+`mix phx.server`, then drives the full `draft → confirmed → fulfilled → paid`
+lifecycle purely over HTTP against the JSON:API — location, product and customer
+creation, a raw-material line correctly rejected, insufficient-stock correctly
+rejected, stock receipt, confirm, a frozen-lines check, fulfil (asserting the
+exact stock deduction and a single ledger row referencing the order number),
+mark-paid, totals, a paid order correctly refusing cancellation, and a second
+order cancelled from draft. It resets and reseeds the dev database, so don't run
+it against data you want to keep.
+
+```bash
+bash test/e2e/order_lifecycle_e2e.sh
+```
 - **Purchasing / suppliers / goods receipt.** Stock arrives via a `:receipt`
   movement with a free-text reference.
 - **Split billing/shipping addresses.** One flat address per customer.

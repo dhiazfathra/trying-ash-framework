@@ -66,6 +66,10 @@ First cut of the sales-order mini-ERP. See
 - GitHub Actions CI: `postgres:17` service, format check,
   `mix compile --warnings-as-errors`, `mix ash.codegen --check` and `mix test`,
   with deps and `_build` cached on `mix.lock`.
+- End-to-end smoke test (`test/e2e/order_lifecycle_e2e.sh`) driving a live
+  `mix phx.server` over real HTTP through the full order lifecycle.
+- `subtotal` and `line_count` order aggregates marked `public? true`, so totals
+  are actually readable over the JSON:API — found by the e2e test.
 
 ### Known limitations
 
@@ -77,6 +81,8 @@ First cut of the sales-order mini-ERP. See
 - Stock deltas are read-modify-write, so every movement takes a `FOR UPDATE` lock
   on the inventory row; throughput on a single hot (product, location) pair is
   therefore one movement at a time.
+- `/admin` (AshAdmin) 500s on mount — an upstream `ash_admin` 1.2.0 bug
+  (`KeyError: :action_type`), not caused by this app. See ASSUMPTIONS.md #38.
 - No invoicing or payments ledger — `paid` is a status flag.
 - No discounts, shipping charges, per-line tax classes, multi-currency, BOM or
   unit-of-measure conversion.

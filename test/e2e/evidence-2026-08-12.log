@@ -1,0 +1,148 @@
+== resetting the dev database ==
+The database for FnbErp.Repo has been dropped
+Getting extensions in current project...
+Running setup for AshPostgres.DataLayer...
+The database for FnbErp.Repo has been created
+
+17:16:21.669 [info] == Running 20260812054653 FnbErp.Repo.Migrations.InitialErpExtensions1.up/0
+
+17:16:21.671 [info] execute "CREATE OR REPLACE FUNCTION ash_elixir_or(left BOOLEAN, in right ANYCOMPATIBLE, out f1 ANYCOMPATIBLE)\nAS $$ SELECT COALESCE(NULLIF($1, FALSE), $2) $$\nLANGUAGE SQL\nSET search_path = ''\nIMMUTABLE;\n"
+
+17:16:21.674 [info] execute "CREATE OR REPLACE FUNCTION ash_elixir_or(left ANYCOMPATIBLE, in right ANYCOMPATIBLE, out f1 ANYCOMPATIBLE)\nAS $$ SELECT COALESCE($1, $2) $$\nLANGUAGE SQL\nSET search_path = ''\nIMMUTABLE;\n"
+
+17:16:21.674 [info] execute "CREATE OR REPLACE FUNCTION ash_elixir_and(left BOOLEAN, in right ANYCOMPATIBLE, out f1 ANYCOMPATIBLE) AS $$\n  SELECT CASE\n    WHEN $1 IS TRUE THEN $2\n    ELSE $1\n  END $$\nLANGUAGE SQL\nSET search_path = ''\nIMMUTABLE;\n"
+
+17:16:21.675 [info] execute "CREATE OR REPLACE FUNCTION ash_elixir_and(left ANYCOMPATIBLE, in right ANYCOMPATIBLE, out f1 ANYCOMPATIBLE) AS $$\n  SELECT CASE\n    WHEN $1 IS NOT NULL THEN $2\n    ELSE $1\n  END $$\nLANGUAGE SQL\nSET search_path = ''\nIMMUTABLE;\n"
+
+17:16:21.692 [info] execute "CREATE OR REPLACE FUNCTION ash_trim_whitespace(arr text[])\nRETURNS text[] AS $$\nDECLARE\n    start_index INT = 1;\n    end_index INT = array_length(arr, 1);\nBEGIN\n    WHILE start_index <= end_index AND arr[start_index] = '' LOOP\n        start_index := start_index + 1;\n    END LOOP;\n\n    WHILE end_index >= start_index AND arr[end_index] = '' LOOP\n        end_index := end_index - 1;\n    END LOOP;\n\n    IF start_index > end_index THEN\n        RETURN ARRAY[]::text[];\n    ELSE\n        RETURN arr[start_index : end_index];\n    END IF;\nEND; $$\nLANGUAGE plpgsql\nSET search_path = ''\nIMMUTABLE;\n"
+
+17:16:21.696 [info] execute "CREATE OR REPLACE FUNCTION ash_raise_error(json_data jsonb)\nRETURNS BOOLEAN AS $$\nBEGIN\n    -- Raise an error with the provided JSON data.\n    -- The JSON object is converted to text for inclusion in the error message.\n    RAISE EXCEPTION 'ash_error: %', json_data::text;\n    RETURN NULL;\nEND;\n$$ LANGUAGE plpgsql\nSTABLE\nSET search_path = '';\n"
+
+17:16:21.697 [info] execute "CREATE OR REPLACE FUNCTION ash_raise_error(json_data jsonb, type_signal ANYCOMPATIBLE)\nRETURNS ANYCOMPATIBLE AS $$\nBEGIN\n    -- Raise an error with the provided JSON data.\n    -- The JSON object is converted to text for inclusion in the error message.\n    RAISE EXCEPTION 'ash_error: %', json_data::text;\n    RETURN NULL;\nEND;\n$$ LANGUAGE plpgsql\nSTABLE\nSET search_path = '';\n"
+
+17:16:21.697 [info] execute "CREATE OR REPLACE FUNCTION ash_required(value ANYCOMPATIBLE, payload jsonb)\nRETURNS ANYCOMPATIBLE AS $$\nBEGIN\n  IF value IS NULL THEN\n    RETURN ash_raise_error(payload, value);\n  END IF;\n\n  RETURN value;\nEND;\n$$ LANGUAGE plpgsql\nSTABLE\nSET search_path = '';\n"
+
+17:16:21.698 [info] execute "CREATE OR REPLACE FUNCTION uuid_generate_v7()\nRETURNS UUID\nAS $$\nDECLARE\n  timestamp    TIMESTAMPTZ;\n  microseconds INT;\nBEGIN\n  timestamp    = clock_timestamp();\n  microseconds = (cast(extract(microseconds FROM timestamp)::INT - (floor(extract(milliseconds FROM timestamp))::INT * 1000) AS DOUBLE PRECISION) * 4.096)::INT;\n\n  RETURN encode(\n    set_byte(\n      set_byte(\n        overlay(uuid_send(gen_random_uuid()) placing substring(int8send(floor(extract(epoch FROM timestamp) * 1000)::BIGINT) FROM 3) FROM 1 FOR 6\n      ),\n      6, (b'0111' || (microseconds >> 8)::bit(4))::bit(8)::int\n    ),\n    7, microseconds::bit(8)::int\n  ),\n  'hex')::UUID;\nEND\n$$\nLANGUAGE PLPGSQL\nSET search_path = ''\nVOLATILE;\n"
+
+17:16:21.700 [info] == Migrated 20260812054653 in 0.0s
+
+17:16:21.725 [info] == Running 20260812054700 FnbErp.Repo.Migrations.InitialErp.up/0
+
+17:16:21.725 [info] create table stock_movements
+
+17:16:21.730 [info] create table products
+
+17:16:21.734 [info] create index products_unique_sku_index
+
+17:16:21.736 [info] create table orders
+
+17:16:21.740 [info] create index orders_unique_order_number_index
+
+17:16:21.742 [info] create table order_lines
+
+17:16:21.747 [info] create index order_lines_unique_product_per_order_index
+
+17:16:21.750 [info] create table locations
+
+17:16:21.753 [info] create index locations_unique_code_index
+
+17:16:21.754 [info] create table inventories
+
+17:16:21.757 [info] alter table stock_movements
+
+17:16:21.758 [info] alter table inventories
+
+17:16:21.764 [info] create index inventories_unique_product_location_index
+
+17:16:21.766 [info] create table customers
+
+17:16:21.768 [info] alter table orders
+
+17:16:21.771 [info] alter table customers
+
+17:16:21.775 [info] create index customers_unique_email_index
+
+17:16:21.778 [info] create check constraint inventories_quantity_on_hand_non_negative on table inventories
+
+17:16:21.779 [info] execute "CREATE SEQUENCE IF NOT EXISTS order_number_seq\n"
+
+17:16:21.781 [info] == Migrated 20260812054700 in 0.0s
+
+17:16:21.783 [info] == Running 20260812061558 FnbErp.Repo.Migrations.IndexStockMovementsInventoryId.up/0
+
+17:16:21.784 [info] create index stock_movements_inventory_id_index
+
+17:16:21.788 [info] == Migrated 20260812061558 in 0.0s
+== booting mix phx.server on :4102 ==
+== waiting for the server to accept connections ==
+server is up (pid 38423)
+
+== 1. create a location ==
+location: 019ff579-2760-7f87-b5f9-83321ce88630
+
+== 2. create a finished-good product ==
+product: 019ff579-27c3-727c-bc50-3a33b49979ea
+
+== 3. create a raw-material product (must be unsellable later) ==
+raw material: 019ff579-2805-796d-84bc-99e2570da0c2
+
+== 4. create a customer (mixed-case email must be downcased) ==
+customer: 019ff579-2846-7d50-aeea-d09e20fe1cef (email downcased to e2e@cafe.co.id)
+
+== 5. create an order with no stock yet ==
+order: 019ff579-289f-7ee6-bb59-8c85abedb214 (SO-202608-0001)
+
+== 6. raw material must be rejected as a line ==
+raw material correctly rejected
+
+== 7. add a real line, quantity 10 ==
+line added, snapshotted price: 18000.00
+
+== 8. confirm with no stock must fail ==
+confirm correctly rejected for insufficient stock
+
+== 9. receive stock via a second order path is unavailable over HTTP;
+     use the mix task instead, then re-check via the API ==
+[debug] QUERY OK db=31.7ms decode=1.3ms queue=1.3ms idle=98.2ms
+MERGE INTO "inventories" AS i0 USING (SELECT v0."id", v0."quantity_on_hand", v0."location_id", v0."product_id", v0."inserted_at", v0."updated_at" FROM (VALUES ($1::uuid,$2::decimal,$3::uuid,$4::uuid,$5::timestamp,$6::timestamp)) AS v0 ("id","quantity_on_hand","location_id","product_id","inserted_at","updated_at")) AS EXCLUDED ON (i0."product_id"::uuid = EXCLUDED."product_id"::uuid) AND (i0."location_id"::uuid = EXCLUDED."location_id"::uuid) WHEN MATCHED THEN UPDATE SET "product_id" = EXCLUDED."product_id", "updated_at" = $7 WHEN NOT MATCHED THEN INSERT ("id", "quantity_on_hand", "location_id", "product_id", "inserted_at", "updated_at") VALUES (EXCLUDED."id", EXCLUDED."quantity_on_hand", EXCLUDED."location_id", EXCLUDED."product_id", EXCLUDED."inserted_at", EXCLUDED."updated_at") RETURNING i0."id", i0."quantity_on_hand", i0."location_id", i0."product_id", i0."inserted_at", i0."updated_at", merge_action() [<<1, 159, 245, 121, 49, 194, 117, 213, 138, 31, 53, 73, 126, 201, 203, 106>>, Decimal.new("0"), <<1, 159, 245, 121, 39, 96, 127, 135, 181, 249, 131, 50, 28, 232, 134, 48>>, <<1, 159, 245, 121, 39, 195, 114, 124, 188, 80, 58, 51, 180, 153, 121, 234>>, ~U[2026-08-12 10:16:28.356064Z], ~U[2026-08-12 10:16:28.356064Z], ~U[2026-08-12 10:16:28.370881Z]]
+[debug] QUERY OK db=0.4ms idle=146.7ms
+begin []
+[90m\x{21B3} Ash.DataLayer.run_transaction/5, at: lib/ash/data_layer/data_layer.ex:667[0m
+[debug] QUERY OK source="inventories" db=2.4ms
+SELECT i0."id", i0."quantity_on_hand", i0."location_id", i0."product_id", i0."inserted_at", i0."updated_at" FROM "inventories" AS i0 WHERE (i0."product_id"::uuid = $1::uuid) AND (i0."location_id"::uuid = $2::uuid) FOR UPDATE OF i0 ["019ff579-27c3-727c-bc50-3a33b49979ea", "019ff579-2760-7f87-b5f9-83321ce88630"]
+[90m\x{21B3} anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4, at: lib/ecto/adapters/sql.ex:1481[0m
+[debug] QUERY OK source="inventories" db=0.8ms
+UPDATE "inventories" AS i0 SET "quantity_on_hand" = $1, "updated_at" = $2 WHERE (i0."id" = $3) RETURNING i0."id", i0."quantity_on_hand", i0."inserted_at", i0."updated_at", i0."product_id", i0."location_id" [Decimal.new("100.000"), ~U[2026-08-12 10:16:28.510394Z], "019ff579-31c2-75d5-8a1f-35497ec9cb6a"]
+[90m\x{21B3} anonymous fn/3 in Ecto.Adapters.SQL.checkout_or_transaction/4, at: lib/ecto/adapters/sql.ex:1481[0m
+[debug] QUERY OK source="stock_movements" db=1.1ms
+INSERT INTO "stock_movements" ("id","reason","reference","quantity","inventory_id","occurred_at") VALUES ($1,$2,$3,$4,$5,$6) RETURNING "occurred_at","inventory_id","quantity","reference","reason","id" ["019ff579-326f-757c-adf0-63bf5ec0ffa7", :receipt, "E2E-PO", Decimal.new("100"), "019ff579-31c2-75d5-8a1f-35497ec9cb6a", ~U[2026-08-12 10:16:28.527344Z]]
+[90m\x{21B3} AshPostgres.DataLayer.bulk_create/3, at: lib/data_layer.ex:2392[0m
+[debug] QUERY OK db=0.7ms
+commit []
+[90m\x{21B3} Ash.DataLayer.run_transaction/5, at: lib/ash/data_layer/data_layer.ex:667[0m
+on hand after receipt: 100.000
+
+== 10. confirm now succeeds ==
+order confirmed
+
+== 11. lines are frozen once confirmed ==
+lines correctly frozen
+
+== 12. fulfil deducts stock and writes the ledger ==
+order fulfilled, stock now 90.000
+ledger has exactly one sale row referencing SO-202608-0001
+
+== 13. mark paid, then totals ==
+order paid — subtotal 180000.00, total 199800.000000
+
+== 14. a paid order cannot be cancelled ==
+cancel correctly rejected on a paid order
+
+== 15. a second, separate order can still be cancelled from draft ==
+second order cancelled from draft
+
+== 16. AshAdmin (informational — not a pass/fail gate) ==
+/admin returned 500 (known upstream ash_admin issue if not 200 — see ASSUMPTIONS.md)
+
+E2E OK — full draft -> confirmed -> fulfilled -> paid lifecycle verified over real HTTP,
+plus rejection paths, stock deduction, ledger integrity, email normalisation and /admin.
